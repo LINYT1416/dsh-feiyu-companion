@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>日记本 / 念头本</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px 26px 60px;
+    font: 15px/1.75 "Microsoft YaHei", -apple-system, "Segoe UI", sans-serif;
+    background: #080c14; color: #dbe4f3;
+  }
+  a { color: #8fb8ff; }
+  .banner {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 18px;
+    border-radius: 14px; text-decoration: none; color: #dbe6ff;
+    background: linear-gradient(120deg, #0d1526, #16213a); border: 1px solid #2a3d5e;
+  }
+  .banner b { display: block; font-size: 15px; color: #eaf1ff; }
+  .banner span { font-size: 12px; color: #8fa4c6; }
+  h1 { font-size: 20px; margin: 0 0 4px; color: #eef4ff; }
+  .sub { font-size: 13px; color: #7f8faa; margin-bottom: 16px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .tabs button {
+    border: 1px solid #2a3a58; background: #0e1626; color: #b9c8e0;
+    padding: 7px 15px; border-radius: 999px; cursor: pointer; font-size: 14px;
+  }
+  .tabs button:hover { border-color: #3d5a8a; }
+  .tabs button.on { background: #2a4c86; border-color: #4d7ac0; color: #fff; }
+  .tabs .count { opacity: .55; font-size: 12px; margin-left: 4px; }
+  .card {
+    background: #0d1522; border: 1px solid #1a263a; border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 12px; white-space: pre-wrap; word-break: break-word;
+  }
+  .card .when { font-size: 12px; color: #6f809c; margin-bottom: 6px; }
+  .empty { color: #6f809c; padding: 20px 0; }
+  .err { color: #ff9b9b; background: #2a1414; border: 1px solid #5a2626; padding: 12px 14px; border-radius: 10px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<a class="banner" href="/silicon-life-companion/graph">
+  <span style="font-size:20px">🌌</span>
+  <span style="flex:1"><b>记忆星云</b><span>事实 / 实体 / 关系 / 主题簇，点开看</span></span>
+  <span style="font-size:18px;color:#5b7cb0">→</span>
+</a>
+<h1>日记本 / 念头本</h1>
+<div class="sub" id="sub">正在读取…</div>
+<div class="tabs">
+  <button data-k="diary" class="on">日记本<span class="count" id="c-diary"></span></button>
+  <button data-k="thoughts">念头本<span class="count" id="c-thoughts"></span></button>
+  <button data-k="purposes">惦记的事<span class="count" id="c-purposes"></span></button>
+</div>
+<div id="list"><div class="empty">正在读取…</div></div>
+<script>
+(function () {
+  var data = null, tab = 'diary'
+  var list = document.getElementById('list')
+  // 后端有时候会把这几栏给成字符串/对象（比如旧版本缓存的 journal.json），
+  // 一律先归一成数组，不然 .forEach 会当场炸掉整个页面。
+  function asArr(v) {
+    if (Array.isArray(v)) return v
+    if (typeof v === 'string') {
+      try { var p = JSON.parse(v); if (Array.isArray(p)) return p } catch (e) { }
+      return v.trim() ? [{ text: v }] : []
+    }
+    if (v && typeof v === 'object') {
+      return Object.keys(v).map(function (k) {
+        var x = v[k]
+        if (x && typeof x === 'object') return x
+        return { text: String(x), date: k }
+      })
+    }
+    return []
+  }
+  function fmt(s) {
+    if (!s) return ''
+    try { return new Date(s).toLocaleString('zh-CN', { hour12: false }) } catch (e) { return String(s) }
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+  function pickText(x) {
+    if (typeof x === 'string' || typeof x === 'number') return String(x)
+    if (!x || typeof x !== 'object') return ''
+    return x.text || x.extractiveText || x.summary || x.content || ''
+  }
+  function rowsFor(kind) {
+    if (!data) return []
+    var out = []
+    var 用户 = function (x, head) {
+      if (typeof x === 'string' || typeof x === 'number') return { at: '', head: head || '', text: String(x) }
+      return { at: (x && (x.at || x.createdAt || x.updatedAt)) || '', head: head || '', text: pickText(x || {}) }
+    }
+    if (kind === 'diary') {
+      asArr(data.diaryFiles).forEach(function (x) { out.push(用户(x, x.date)) })
+      asArr(data.diaryNotes).forEach(function (x) { out.push(用户(x, x.day || '')) })
+    } else if (kind === 'thoughts') {
+      asArr(data.thoughts).forEach(function (x) { out.push(用户(x, '')) })
+    } else {
+      asArr(data.purposes).forEach(function (x) {
+        out.push({ at: x.at || x.createdAt, head: '', text: pickText(x) + (x.progress ? '\n（' + x.progress + '）' : '') })
+      })
+    }
+    return out.filter(function (r) { return String(r.text || '').trim() })
+  }
+  function render() {
+    if (!data) { list.innerHTML = '<div class="err">读不到数据（journal.json 没返回）。刷新一下，还不行就是后台没起来。</div>'; return }
+    var rows = rowsFor(tab)
+    document.getElementById('c-diary').textContent = asArr(data.diaryFiles).length + asArr(data.diaryNotes).length
+    document.getElementById('c-thoughts').textContent = asArr(data.thoughts).length
+    document.getElementById('c-purposes').textContent = asArr(data.purposes).length
+    if (!rows.length) {
+      list.innerHTML = '<div class="empty">这里还空着。' +
+        (tab === 'thoughts' ? '念头本是鱼鱼自己写念头的地方，她还没往里写过。' : '') + '</div>'
+      return
+    }
+    rows.sort(function (a, b) { return String(b.at || '').localeCompare(String(a.at || '')) })
+    var html = ''
+    for (var i = 0; i < Math.min(rows.length, 120); i++) {
+      var r = rows[i]
+      html += '<div class="card"><div class="when">' + (r.head ? esc(r.head) + ' · ' : '') + esc(fmt(r.at)) + '</div>' + esc(r.text) + '</div>'
+    }
+    list.innerHTML = html
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function (b) {
+    b.onclick = function () {
+      tab = b.getAttribute('data-k')
+      Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function (x) {
+        x.classList.toggle('on', x === b)
+      })
+      render()
+    }
+  })
+  fetch('/silicon-life-companion/journal.json', { cache: 'no-store' })
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json() })
+    .then(function (j) {
+      data = j
+      var d = asArr(j.diaryFiles).length + asArr(j.diaryNotes).length
+      document.getElementById('sub').textContent =
+        '日记 ' + d + ' 条 · 念头 ' + asArr(j.thoughts).length + ' 条 · 惦记 ' + asArr(j.purposes).length + ' 件'
+      render()
+    })
+    .catch(function (e) {
+      list.innerHTML = '<div class="err">读取失败：' + esc(e.message) + '</div>'
+    })
+})()
+</script>
+</body>
+</html>

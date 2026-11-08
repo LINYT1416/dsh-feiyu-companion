@@ -1,0 +1,4 @@
+- insert:
+    - id: silicon-life-companion-v4
+      name: '@local/silicon-life-companion-v4'
+      config: {}

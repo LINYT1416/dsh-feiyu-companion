@@ -1,0 +1,4 @@
+# dsh-mood-v2 bundle layer.
+- insert:
+    - id: mood-v2
+      name: dsh-mood-v2

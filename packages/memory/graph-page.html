@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>记忆星云</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#04060c;color:#cfd8e8;
+    font:13px/1.6 "Microsoft YaHei",-apple-system,"Segoe UI",sans-serif}
+  #c{display:block;width:100vw;height:100vh;cursor:grab}
+  #c.drag{cursor:grabbing}
+  #side{position:fixed;left:0;top:0;bottom:0;width:228px;padding:18px 14px;overflow:auto;z-index:6;
+    background:linear-gradient(180deg,rgba(6,9,16,.9),rgba(4,6,12,.8));border-right:1px solid #101828}
+  #side h4{margin:0 0 9px;font-size:12px;letter-spacing:1px;color:#6b7f9f;font-weight:600}
+  #side .row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;color:#b3c2da}
+  #side .row i{width:9px;height:9px;border-radius:50%;flex:none}
+  #side .row span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #side .row em{font-style:normal;font-size:11px;color:#63779a}
+  #q{position:fixed;left:calc(50% + 114px);top:14px;transform:translateX(-50%);width:min(380px,40vw);
+    padding:8px 15px;border-radius:999px;border:1px solid #1f2c44;background:rgba(8,12,22,.9);
+    color:#dbe3f2;outline:none;font-size:13px;z-index:7}
+  #bar{position:fixed;left:calc(50% + 114px);top:56px;transform:translateX(-50%);display:flex;gap:6px;z-index:7}
+  #bar button{padding:6px 12px;border-radius:9px;border:1px solid #22304a;background:rgba(9,14,26,.92);
+    color:#c3d2e8;font-size:12px;cursor:pointer}
+  #bar button:hover{border-color:#3d5a8a;color:#fff}
+  #stat{position:fixed;left:244px;bottom:14px;font-size:12px;color:#5b6c8a;z-index:6}
+  #tip{position:fixed;padding:6px 10px;border-radius:8px;background:rgba(7,11,20,.96);
+    border:1px solid #202d45;color:#dbe6ff;font-size:12px;pointer-events:none;display:none;z-index:9;max-width:320px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="side"><h4>记忆来源</h4><div id="sources"></div><h4 style="margin-top:16px">主题星云</h4><div id="clusters"></div></div>
+<input id="q" placeholder="搜一个词：B站 / 语音 / 主人 / 账号…">
+<div id="bar"><button data-a="in">放大 +</button><button data-a="out">缩小 −</button><button data-a="reset">重置视角</button></div>
+<div id="stat">载入中…</div>
+<div id="tip"></div>
+<script>
+(function () {
+  var cv = document.getElementById('c'), g = cv.getContext('2d')
+  var hz = document.createElement('canvas'), hg = hz.getContext('2d')   // 雾层
+  var DPR = Math.min(2, window.devicePixelRatio || 1)
+  var W = 0, H = 0, LEFT = 228
+  var cam = { zoom: 1, px: 0, py: 0 }
+  var nodes = [], edges = [], byId = new Map(), clusters = []
+  var query = ''
+  var decoStars = [], decoBright = [], decoFine = []
+  function makeDeco() {
+    decoStars = []; decoBright = []
+    var s = 12345
+    function r() { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff }
+    for (var i = 0; i < 1800; i++) {
+      decoStars.push({ x: r(), y: r(), r: 0.5 + r() * 1.1, a: 0.16 + r() * 0.5, p: r() * 6.28 })
+    }
+    decoFine = []
+    for (var k2 = 0; k2 < 1600; k2++) {
+      decoFine.push({ x: r(), y: r(), r: 0.3 + r() * 0.5, a: 0.08 + r() * 0.22, p: r() * 6.28 })
+    }
+    for (var j = 0; j < 520; j++) {
+      decoBright.push({ x: r(), y: r(), r: 0.9 + r() * 1.4, h: Math.round(r() * 360), a: 0.3 + r() * 0.5, p: r() * 6.28 })
+    }
+  }
+
+  function resize() {
+    W = innerWidth; H = innerHeight
+    cv.width = Math.floor(W * DPR); cv.height = Math.floor(H * DPR)
+    g.setTransform(DPR, 0, 0, DPR, 0, 0)
+    hz.width = Math.floor(W / 4); hz.height = Math.floor(H / 4)
+    layout(); makeDeco()
+  }
+  addEventListener('resize', resize)
+
+  fetch('graph.json').then(function (r) { return r.json() }).then(init).catch(function (e) {
+    document.getElementById('stat').textContent = '读不到 graph.json：' + e.message
+  })
+
+  function init(d) {
+    nodes = d.nodes.map(function (n) {
+      return { id: n.id, type: n.type, label: n.label, full: n.full || n.label, hue: n.hue || 205, deg: 0 }
+    })
+    nodes.forEach(function (n) { byId.set(n.id, n) })
+    edges = d.edges.filter(function (e) { return byId.get(e.s) && byId.get(e.t) })
+    edges.forEach(function (e) { byId.get(e.s).deg++; byId.get(e.t).deg++ })
+    clusters = nodes.filter(function (n) { return n.type === 'cluster' })
+
+    // 归属：从星团 BFS 到实体/主题
+    var adj = {}
+    edges.forEach(function (e) {
+      ;(adj[e.s] || (adj[e.s] = [])).push(e.t)
+      ;(adj[e.t] || (adj[e.t] = [])).push(e.s)
+    })
+    var 归属 = {}
+    clusters.forEach(function (c) {
+      归属[c.id] = c.id
+      var q = [c.id]
+      while (q.length) {
+        var cur = q.pop()
+        ;(adj[cur] || []).forEach(function (nb) {
+          if (归属[nb]) return
+          归属[nb] = c.id
+          var m = byId.get(nb)
+          if (m && m.type !== 'fact') q.push(nb)
+        })
+      }
+    })
+    // 事实按 id 哈希均匀摊到 43 个星团（否则大半事实全挤在少数团里）
+    var facts = nodes.filter(function (n) { return n.type === 'fact' })
+    // 权重幂律：前几个团吸走大半事实，剩下的分给长尾 → 团有大有小
+    归属.__w = clusters.map(function (c, i) {
+      return i < 6 ? 26 - i * 3 : (i < 20 ? 3 : 1)
+    })
+    var 总权 = 归属.__w.reduce(function (a, b) { return a + b }, 0)
+    facts.forEach(function (n) {
+      var h = 0, s = n.id
+      for (var k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0x7fffffff
+      var x = (h % 100000) / 100000 * 总权, acc = 0, pick = 0
+      for (var i = 0; i < 归属.__w.length; i++) {
+        acc += 归属.__w[i]
+        if (x <= acc) { pick = i; break }
+      }
+      归属[n.id] = clusters[pick].id
+    })
+    clusters.forEach(function (c) {
+      c.members = nodes.filter(function (n) { return 归属[n.id] === c.id }).length
+      c.imp = 1
+    })
+    nodes.forEach(function (n) {
+      n.owner = 归属[n.id] || null
+      n.imp = n.type === 'cluster' ? 1
+        : n.type === 'entity' ? Math.min(.85, .45 + n.deg * .012)
+        : n.type === 'topic' ? Math.min(.45, .10 + n.deg * .01)
+        : Math.min(.12, .02 + n.deg * .004)
+    })
+
+    var kinds = { fact: '记忆事实', entity: '实体', topic: '主题词', cluster: '主题星云' }
+    document.getElementById('sources').innerHTML = Object.keys(kinds).map(function (k) {
+      return '<div class="row"><i style="background:#cdd8e8"></i><span>' + kinds[k] + '</span><em>' +
+        nodes.filter(function (n) { return n.type === k }).length + '</em></div>'
+    }).join('')
+    document.getElementById('clusters').innerHTML = clusters.slice().sort(function (a, b) {
+      return b.members - a.members
+    }).slice(0, 16).map(function (c) {
+      return '<div class="row"><i style="background:hsl(' + c.hue + ',18%,72%)"></i><span>' + c.label + '</span><em>' + c.members + '</em></div>'
+    }).join('')
+
+    document.getElementById('stat').textContent =
+      '事实 ' + d.事实 + ' · 实体 ' + d.实体 + ' · 主题 ' + d.主题 + ' · 关系 ' + d.关系 + ' · 星云 ' + d.簇 + ' · 节点 ' + d.节点
+    resize(); requestAnimationFrame(loop)
+  }
+
+  // 星团群：泊松盘撒团心（团之间留空隙），成员紧贴团心；色相按团序轮换
+  var PALETTE = [200, 272, 330, 42, 165, 232, 300, 96]
+  function layout() {
+    if (!clusters.length) return
+    var cx0 = LEFT + (W - LEFT) / 2, cy0 = H / 2
+    var R = Math.min(W - LEFT, H) * 0.30
+    seed = 4242
+    var pts = [], tries = 0
+    while (pts.length < clusters.length && tries < 12000) {
+      tries++
+      var a = rnd() * 6.283, rr = Math.sqrt(rnd())
+      var x = cx0 + Math.cos(a) * rr * R * 1.2
+      var y = cy0 + Math.sin(a) * rr * R * 0.92
+      var okp = true
+      for (var k = 0; k < pts.length; k++) {
+        if ((x - pts[k][0]) * (x - pts[k][0]) + (y - pts[k][1]) * (y - pts[k][1]) < 40 * 40) { okp = false; break }
+      }
+      if (okp) pts.push([x, y])
+    }
+    clusters.forEach(function (c, i) {
+      var pt = pts[i] || [cx0 + (rnd() - .5) * R, cy0 + (rnd() - .5) * R]
+      c.bx = pt[0]; c.by = pt[1]
+      c.hue = Math.round(rnd() * 360)
+      c.size = 1 + Math.log(1 + (c.members || 1))
+    })
+    nodes.forEach(function (n) {
+      if (n.type === 'cluster') return
+      var c = n.owner ? byId.get(n.owner) : null
+      var ccx = c ? c.bx : cx0, ccy = c ? c.by : cy0
+      var s = 7.2 * (c ? Math.min(2.0, c.size / 2.6) : 1)
+      n.bx = ccx + gauss() * s * (n.type === 'fact' ? 1.7 : 1.15)
+      n.by = ccy + gauss() * s * (n.type === 'fact' ? 1.7 : 1.15)
+      n.hue = c ? ((c.hue + gauss() * 55) % 360 + 360) % 360 : 210
+    })
+  }
+  var seed = 20261106
+  function rnd() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff }
+  function gauss() { return (rnd() + rnd() + rnd() - 1.5) }
+
+  function screen(n) {
+    var cx = LEFT + (W - LEFT) / 2, cy = H / 2
+    return {
+      x: cx + (n.bx - cx) * cam.zoom + cam.px,
+      y: cy + (n.by - cy) * cam.zoom + cam.py
+    }
+  }
+
+  function loop() {
+    g.clearRect(0, 0, W, H)
+    var bg = g.createRadialGradient(LEFT + (W - LEFT) / 2, H / 2, 0, LEFT + (W - LEFT) / 2, H / 2, Math.max(W, H) * .8)
+    bg.addColorStop(0, '#070b14'); bg.addColorStop(.55, '#04060c'); bg.addColorStop(1, '#020308')
+    g.fillStyle = bg; g.fillRect(0, 0, W, H)
+
+    // ── 装饰：背景微星（什么都不代表）
+    var now = performance.now() / 1000
+    for (var ds = 0; ds < decoStars.length; ds++) {
+      var d0 = decoStars[ds]
+      g.globalAlpha = d0.a * (0.6 + 0.4 * Math.sin(now * 0.9 + d0.p))
+      g.fillStyle = '#b9c9e4'
+      var px0 = (W/2) + (d0.x * W - W/2) * (1 + (cam.zoom - 1) * 0.25) + cam.px * 0.25
+      var py0 = (H/2) + (d0.y * H - H/2) * (1 + (cam.zoom - 1) * 0.25) + cam.py * 0.25
+      g.fillRect(px0, py0, d0.r, d0.r)
+    }
+    g.globalAlpha = 1
+
+    for (var df = 0; df < decoFine.length; df++) {
+      var f0 = decoFine[df]
+      g.globalAlpha = f0.a
+      g.fillStyle = '#9fb2d0'
+      g.fillRect(f0.x * W, f0.y * H, f0.r, f0.r)
+    }
+    g.globalAlpha = 1
+
+    // ── 雾层：低分辨率画盘 → 模糊 → 放大叠加（画布版"高斯模糊"）
+    hg.setTransform(1, 0, 0, 1, 0, 0)
+    hg.clearRect(0, 0, hz.width, hz.height)
+    for (var f = 0; f < 44; f++) {
+      var fc = clusters[f % clusters.length]
+      if (!fc) continue
+      var fp = screen(fc)
+      var fr = (7 + Math.sqrt(Math.max(1, fc.members)) * 1.0) * cam.zoom / 4
+      hg.globalAlpha = 1
+      hg.fillStyle = 'hsla(' + fc.hue + ', 80%, 62%, 0.30)'
+      hg.beginPath(); hg.arc(fp.x / 4, fp.y / 4, fr, 0, 6.2832); hg.fill()
+    }
+    g.save()
+    g.globalCompositeOperation = 'lighter'
+    g.filter = 'blur(7px)'
+    g.globalAlpha = 0.38
+    g.drawImage(hz, 0, 0, hz.width, hz.height, 0, 0, W, H)
+    g.restore()
+
+    // ── 星团之间的星座线（像参考图那样少量长线）
+    for (var ci = 0; ci < clusters.length; ci++) {
+      var A = clusters[ci], pa0 = screen(A)
+      var near = clusters.slice().filter(function (c) { return c !== A }).map(function (c) {
+        var p2 = screen(c)
+        return { c: c, d: Math.hypot(p2.x - pa0.x, p2.y - pa0.y), p: p2 }
+      }).sort(function (u, v) { return u.d - v.d }).slice(0, 3)
+      g.strokeStyle = 'hsla(' + ((A.hue + near[0].c.hue) / 2) + ', 70%, 70%, .16)'; g.lineWidth = 0.8
+      near.forEach(function (o) {
+        g.beginPath(); g.moveTo(pa0.x, pa0.y); g.lineTo(o.p.x, o.p.y); g.stroke()
+      })
+    }
+
+    // ── 装饰：散落星尘（带淡淡颜色，也不代表任何记忆）
+    for (var db = 0; db < decoBright.length; db++) {
+      var b0 = decoBright[db]
+      g.globalAlpha = b0.a * (0.65 + 0.35 * Math.sin(now * 1.3 + b0.p))
+      g.fillStyle = 'hsl(' + b0.h + ', 70%, 82%)'
+      var bx0 = (W/2) + (b0.x * W - W/2) * (1 + (cam.zoom - 1) * 0.32) + cam.px * 0.32
+      var by0 = (H/2) + (b0.y * H - H/2) * (1 + (cam.zoom - 1) * 0.32) + cam.py * 0.32
+      g.beginPath(); g.arc(bx0, by0, b0.r, 0, 6.2832); g.fill()
+    }
+    g.globalAlpha = 1
+
+    // ── 连线（极少、极淡）
+    for (var e = 0; e < edges.length; e += 12) {
+      var ed = edges[e], a = byId.get(ed.s), b = byId.get(ed.t)
+      if (!ed.rel && a.owner !== b.owner) continue
+      var pa = screen(a), pb = screen(b)
+      g.strokeStyle = ed.rel ? 'rgba(255,190,130,.4)' : 'rgba(150,168,196,.06)'
+      g.lineWidth = ed.rel ? 1 : 0.6
+      g.beginPath(); g.moveTo(pa.x, pa.y); g.lineTo(pb.x, pb.y); g.stroke()
+    }
+
+    // ── 星点：银白，团心亮、事实暗
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i]
+      var p = screen(n)
+      if (p.x < LEFT - 20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) continue
+      var isQ = query && n.label.toLowerCase().indexOf(query) >= 0
+      var r, col
+      if (n.type === 'cluster') { r = 2.8 * Math.min(2, cam.zoom); col = 'hsl(' + n.hue + ', 85%, 88%)' }
+      else if (n.type === 'entity') { r = 1.9 * Math.min(2, cam.zoom); col = 'hsl(' + n.hue + ', 82%, 74%)' }
+      else if (n.type === 'topic') { r = 1.3 * Math.min(2, cam.zoom); col = 'hsl(' + n.hue + ', 70%, 62%)' }
+      else { r = .95 * Math.min(2, cam.zoom); col = 'hsl(' + n.hue + ', 55%, 50%)' }
+      if (isQ) { r *= 2; col = '#fff' }
+      g.fillStyle = col
+      g.beginPath(); g.arc(p.x, p.y, r, 0, 6.2832); g.fill()
+      if (n.type === 'cluster') {
+        g.save(); g.globalCompositeOperation = 'lighter'
+        var gl = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3.4)
+        gl.addColorStop(0, 'hsla(' + n.hue + ', 90%, 72%, .35)'); gl.addColorStop(1, 'hsla(' + n.hue + ', 90%, 68%, 0)')
+        g.fillStyle = gl
+        g.beginPath(); g.arc(p.x, p.y, r * 3.4, 0, 6.2832); g.fill(); g.restore()
+      }
+    }
+
+    // ── 标签 LOD
+    var tz = Math.max(0, Math.min(1, (cam.zoom - 0.85) / 1.5))
+    var 门槛 = 1.02 - tz * 1.02
+    var 上限 = Math.round(4 + tz * 80)
+    var order = nodes.slice().sort(function (a, b) { return (b.imp || 0) - (a.imp || 0) })
+    var drawn = 0, used = {}
+    g.textAlign = 'center'
+    for (var l = 0; l < order.length; l++) {
+      var nd = order[l]
+      if (nd.type !== 'cluster' && (nd.imp || 0) < 门槛) continue
+      if (nd.type === 'cluster' && tz < .35 && drawn >= 8) continue
+      if (drawn > 上限) break
+      var pp = screen(nd)
+      if (pp.x < LEFT + 8 || pp.x > W - 8 || pp.y < 12 || pp.y > H - 12) continue
+      var gk = Math.round(pp.x / 78) + ',' + Math.round(pp.y / 24)
+      if (nd.type !== 'cluster' && used[gk]) continue
+      used[gk] = 1; drawn++
+      var isC = nd.type === 'cluster'
+      g.font = (isC ? '600 12.5px' : '11px') + ' "Microsoft YaHei",sans-serif'
+      g.shadowColor = 'rgba(0,0,0,.85)'; g.shadowBlur = 4
+      g.fillStyle = isC ? 'hsl(' + nd.hue + ', 80%, 86%)' : 'hsla(' + nd.hue + ', 60%, 78%, .72)'
+      g.fillText(nd.label.slice(0, 12), pp.x, pp.y - (isC ? 11 : 7))
+      g.shadowBlur = 0
+    }
+    requestAnimationFrame(loop)
+  }
+
+  function setCam(a) {
+    if (a === 'in') cam.zoom = Math.min(5, cam.zoom * 1.25)
+    else if (a === 'out') cam.zoom = Math.max(.3, cam.zoom / 1.25)
+    else if (a === 'reset') { cam.zoom = 1; cam.px = 0; cam.py = 0 }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#bar button'), function (b) {
+    b.onclick = function () { setCam(b.getAttribute('data-a')) }
+  })
+  addEventListener('keydown', function (e) {
+    if (e.key === '+' || e.key === '=') setCam('in')
+    else if (e.key === '-') setCam('out')
+    else if (e.key === '0') setCam('reset')
+  })
+
+  var drag = null
+  cv.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY, px: cam.px, py: cam.py }; cv.classList.add('drag') })
+  cv.addEventListener('pointermove', function (e) {
+    if (drag) { cam.px = drag.px + (e.clientX - drag.x); cam.py = drag.py + (e.clientY - drag.y); return }
+    var hit = pick(e.clientX, e.clientY)
+    var tip = document.getElementById('tip')
+    if (hit) {
+      tip.style.display = 'block'
+      tip.style.left = Math.min(W - 330, e.clientX + 14) + 'px'
+      tip.style.top = (e.clientY + 14) + 'px'
+      tip.textContent = hit.full.slice(0, 90)
+    } else tip.style.display = 'none'
+  })
+  cv.addEventListener('pointerup', function () { cv.classList.remove('drag'); drag = null })
+  cv.addEventListener('wheel', function (e) {
+    e.preventDefault()
+    var nz = Math.max(.3, Math.min(5, cam.zoom * (e.deltaY > 0 ? .9 : 1.1)))
+    var cx = LEFT + (W - LEFT) / 2, cy = H / 2
+    cam.px = e.clientX - (e.clientX - cam.px - cx) * (nz / cam.zoom) - cx
+    cam.py = e.clientY - (e.clientY - cam.py - cy) * (nz / cam.zoom) - cy
+    cam.zoom = nz
+  }, { passive: false })
+
+  function pick(px, py) {
+    var best = null, bd = 14
+    for (var i = 0; i < nodes.length; i++) {
+      var p = screen(nodes[i]), d = Math.hypot(p.x - px, p.y - py)
+      if (d < bd) { bd = d; best = nodes[i] }
+    }
+    return best
+  }
+
+  document.getElementById('q').addEventListener('input', function (e) { query = (e.target.value || '').trim().toLowerCase() })
+})()
+</script>
+</body>
+</html>

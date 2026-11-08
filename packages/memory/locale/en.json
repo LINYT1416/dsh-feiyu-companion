@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Companion Memory & State",
+    "description": "Layered memory with source anchors, mood state, and bounded context injection."
+  }
+}

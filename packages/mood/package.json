@@ -1,0 +1,31 @@
+{
+    "name":  "dsh-mood-v2",
+    "version":  "0.3.0",
+    "description":  "大肥鱼的心情（第二版）：随机小事 + 时间 + 对话线索共同影响；区分「心里」与「表面装的」；对所有会话（含 QQ）共享同一份心情；带一个能随时看心情的设置页。",
+    "type":  "module",
+    "main":  "index-p0.js",
+    "exports":  {
+                    ".":  "./index-p0.js",
+                    "./client":  "./client.js",
+                    "./package.json":  "./package.json"
+                },
+    "files":  [
+                  "index-p0.js",
+                  "index.js",
+                  "client.js",
+                  "cordis.patch.yml"
+              ],
+    "license":  "MIT",
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           },
+                "client":  {
+                               "platform":  "web",
+                               "immediately":  true,
+                               "inject":  [
+                                              "@deepseek-ai/dsh-client-ui-conversation"
+                                          ]
+                           }
+            }
+}

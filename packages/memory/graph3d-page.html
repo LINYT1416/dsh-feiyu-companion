@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>记忆星云 · 3D</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#04060c;color:#cfd8e8;
+    font:13px/1.6 "Microsoft YaHei",-apple-system,"Segoe UI",sans-serif}
+  #stars,#gl,#lbl,#glow{position:fixed;inset:0;display:block}
+  #glow{pointer-events:none;opacity:.55}
+  #lbl{pointer-events:none}
+  #gl{cursor:grab} #gl.drag{cursor:grabbing}
+  #side{position:fixed;left:0;top:0;bottom:0;width:228px;padding:18px 14px;overflow:auto;z-index:6;
+    background:linear-gradient(180deg,rgba(7,11,18,.92),rgba(5,8,14,.82));border-right:1px solid #121a28}
+  #side h4{margin:0 0 9px;font-size:12px;letter-spacing:1px;color:#6c80a1;font-weight:600}
+  #side .row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;cursor:pointer;color:#b6c5dd}
+  #side .row:hover{background:#0f1826}
+  #side .row.on{background:#16233a;color:#fff}
+  #side .row i{width:9px;height:9px;border-radius:50%;flex:none}
+  #side .row span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #side .row em{font-style:normal;font-size:11px;color:#64789a}
+  #q{position:fixed;left:calc(50% + 114px);top:14px;transform:translateX(-50%);width:min(380px,40vw);
+    padding:8px 15px;border-radius:999px;border:1px solid #1f2c44;background:rgba(9,14,24,.9);
+    color:#dbe3f2;outline:none;font-size:13px;z-index:7}
+  #stat{position:fixed;left:244px;bottom:14px;font-size:12px;color:#5c6d8b;z-index:6}
+  #hint{position:fixed;right:16px;bottom:14px;font-size:12px;color:#4f5f7a;z-index:6}
+  #tip{position:fixed;padding:6px 10px;border-radius:8px;background:rgba(8,13,22,.96);
+    border:1px solid #202d45;color:#dbe6ff;font-size:12px;pointer-events:none;display:none;z-index:9;max-width:330px}
+  #panel{position:fixed;right:14px;top:58px;width:320px;max-height:72vh;overflow:auto;padding:15px 17px;
+    border-radius:14px;background:rgba(7,11,19,.96);border:1px solid #1a2438;display:none;z-index:8;font-size:13px}
+  #shape{display:none
+  }
+  #shape.on{position:fixed;left:calc(50% + 114px);top:132px;transform:translateX(-50%);display:flex;gap:10px;align-items:center;
+    z-index:7;font-size:12px;color:#93a7c6;background:rgba(10,16,28,.86);border:1px solid #1e2c44;border-radius:10px;padding:6px 12px}
+  #shape input[type=range]{width:70px}
+  #shape button{background:#0d1524;color:#c3d2e8;border:1px solid #22304a;border-radius:7px;padding:2px 8px;font-size:12px;cursor:pointer}
+  #filters{position:fixed;left:calc(50% + 114px);top:96px;transform:translateX(-50%);display:flex;gap:10px;align-items:center;z-index:7;font-size:12px;color:#93a7c6;background:rgba(10,16,28,.86);border:1px solid #1e2c44;border-radius:10px;padding:6px 12px}
+  #filters label{display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
+  #filters select{background:#0d1524;color:#c3d2e8;border:1px solid #22304a;border-radius:7px;padding:3px 6px;font-size:12px}
+  #bar{position:fixed;left:calc(50% + 114px);top:56px;transform:translateX(-50%);display:flex;gap:6px;z-index:7}
+  #bar button{padding:6px 12px;border-radius:9px;border:1px solid #22304a;background:rgba(10,16,28,.92);
+    color:#c3d2e8;font-size:12px;cursor:pointer}
+  #bar button:hover{border-color:#3d5a8a;color:#fff}
+  #panel h3{margin:0 0 7px;font-size:12px;color:#7a8fae;font-weight:600;letter-spacing:.5px}
+  #panel .t{color:#e9effa;margin-bottom:9px;line-height:1.7}
+  #panel ul{margin:0;padding-left:17px;color:#a6b3c9} #panel li{margin:4px 0}
+  .tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;margin-right:6px}
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<canvas id="gl"></canvas>
+<canvas id="glow"></canvas>
+<canvas id="lbl"></canvas>
+<div id="side"><h4>记忆来源</h4><div id="sources"></div><h4 style="margin-top:16px">主题星群</h4><div id="clusters"></div></div>
+<div id="filters">
+  <label><input type="checkbox" data-t="fact" checked>事实</label>
+  <label><input type="checkbox" data-t="entity" checked>实体</label>
+  <label><input type="checkbox" data-t="topic" checked>主题</label>
+  <label><input type="checkbox" data-t="cluster" checked>星群</label>
+  <span style="color:#4d5f7d">|</span>
+  <label>时间 <select id="days"><option value="0">全部</option><option value="1">24 小时</option><option value="7">7 天</option><option value="30">30 天</option></select></label>
+</div>
+<div id="shape">
+  <span>形状</span>
+  <label>宽 <input type="range" id="sx" min="0.6" max="1.8" step="0.02" value="1"></label>
+  <label>高 <input type="range" id="sy" min="0.6" max="1.8" step="0.02" value="1"></label>
+  <label>深 <input type="range" id="sz" min="0.6" max="1.8" step="0.02" value="1"></label>
+  <button id="sreset">复位</button>
+</div>
+<input id="q" placeholder="搜一个词：B站 / 语音 / 主人 / 账号…">
+<div id="bar"><button data-a="in">放大 +</button><button data-a="out">缩小 −</button><button data-a="fit">适应全部</button><button data-a="reset">重置视角</button><button data-a="bloom">柔光 开</button><button data-a="spin">暂停旋转</button></div>
+<div id="stat">载入中…</div>
+<div id="hint">中键拖=旋转 · Ctrl+中键/右键=平移 · 滚轮=缩放 · 双击=聚焦 · 左键点选 · S=形状微调</div>
+<div id="tip"></div>
+<div id="panel"></div>
+<script>
+(function () {
+  var glc = document.getElementById('gl'), lbc = document.getElementById('lbl')
+  var glowc = document.getElementById('glow'), g2 = glowc.getContext('2d')
+  var small = document.createElement('canvas'), s2 = small.getContext('2d')
+  var stc = document.getElementById('stars'), sg = stc.getContext('2d')
+  var bgStars = [], bgBright = []
+  var gl = glc.getContext('webgl2', { antialias: true, alpha: true, premultipliedAlpha: false })
+  var lg = lbc.getContext('2d')
+  var DPR = Math.min(2, window.devicePixelRatio || 1)
+  var W = 0, H = 0, LEFT = 228
+  if (!gl) { document.getElementById('stat').textContent = '这个环境不支持 WebGL2'; return }
+
+  var nodes = [], edges = [], byId = new Map()
+  var cam = { yaw: 0.6, pitch: 0.22, dist: 2600, tx: 0, ty: 0, tz: 0 }
+  var DEFAULT = null
+  var query = '', hover = null, selected = null, highlightCluster = null
+  var 显示 = { fact: true, entity: true, topic: true, cluster: true, days: 0 }
+  var 形状 = { sx: 1, sy: 1, sz: 1 }
+  var 重画 = null
+  try { var 存 = JSON.parse(localStorage.getItem('brainScale') || 'null'); if (存) 形状 = 存 } catch (e) {}
+  var 全部节点 = [], 全部边 = []
+  var spin = true
+  var bloomOn = true
+
+  function resize() {
+    W = innerWidth; H = innerHeight
+    glc.width = Math.floor(W * DPR); glc.height = Math.floor(H * DPR)
+    lbc.width = Math.floor(W * DPR); lbc.height = Math.floor(H * DPR)
+    lg.setTransform(DPR, 0, 0, DPR, 0, 0)
+    gl.viewport(0, 0, glc.width, glc.height)
+    glowc.width = Math.floor(W * DPR); glowc.height = Math.floor(H * DPR)
+    g2.setTransform(DPR, 0, 0, DPR, 0, 0)
+    small.width = Math.max(1, Math.floor(W / 4)); small.height = Math.max(1, Math.floor(H / 4))
+    stc.width = Math.floor(W * DPR); stc.height = Math.floor(H * DPR)
+    sg.setTransform(DPR, 0, 0, DPR, 0, 0)
+    造星空()
+  }
+
+  // 装饰星（不代表任何记忆，纯背景）
+  function 造星空() {
+    bgStars.length = 0; bgBright.length = 0
+    var s = 987654321
+    function r() { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff }
+    for (var i = 0; i < 1500; i++) bgStars.push({ x: r(), y: r(), r: 0.4 + r() * 1.0, a: 0.14 + r() * 0.45, p: r() * 6.28 })
+    for (var j = 0; j < 380; j++) bgBright.push({ x: r(), y: r(), r: 0.9 + r() * 1.3, h: Math.round(r() * 360), a: 0.25 + r() * 0.45, p: r() * 6.28 })
+  }
+
+  function 画星空() {
+    var t0 = performance.now() / 1000
+    var g0 = sg.createRadialGradient(LEFT + (W - LEFT) / 2, H / 2, 0, LEFT + (W - LEFT) / 2, H / 2, Math.max(W, H) * 0.85)
+    g0.addColorStop(0, '#070b14'); g0.addColorStop(.55, '#04060c'); g0.addColorStop(1, '#020308')
+    sg.fillStyle = g0; sg.fillRect(0, 0, W, H)
+    // 视差：跟着相机 yaw/pitch 轻微平移
+    var ox = Math.cos(cam.yaw) * 40, oy = Math.sin(cam.pitch) * 26
+    for (var i = 0; i < bgStars.length; i++) {
+      var d0 = bgStars[i]
+      sg.globalAlpha = d0.a * (0.6 + 0.4 * Math.sin(t0 * 0.9 + d0.p))
+      sg.fillStyle = '#b9c9e4'
+      sg.fillRect(d0.x * W + ox, d0.y * H + oy, d0.r, d0.r)
+    }
+    for (var j = 0; j < bgBright.length; j++) {
+      var b0 = bgBright[j]
+      sg.globalAlpha = b0.a * (0.65 + 0.35 * Math.sin(t0 * 1.2 + b0.p))
+      sg.fillStyle = 'hsl(' + b0.h + ', 65%, 82%)'
+      sg.beginPath(); sg.arc(b0.x * W + ox * 0.7, b0.y * H + oy * 0.7, b0.r, 0, 6.2832); sg.fill()
+    }
+    sg.globalAlpha = 1
+  }
+  addEventListener('resize', resize); resize()
+
+  // ── 着色器 ──────────────────────────────────────────────
+  var VS_POINT = `#version 300 es
+  layout(location=0) in vec3 aPos;
+  layout(location=1) in vec3 aCol;
+  layout(location=2) in float aSize;
+  uniform mat4 uVP;
+  uniform float uScale;
+  uniform float uSizeMul;
+  out vec3 vCol;
+  out float vFade;
+  void main(){
+    vec4 clip = uVP * vec4(aPos,1.0);
+    gl_Position = clip;
+    float w = max(0.001, clip.w);
+    gl_PointSize = clamp(aSize * uSizeMul * uScale / w, 1.0, 96.0);
+    vCol = aCol;
+    vFade = clamp(1.0 - (w / 6000.0), 0.25, 1.0);
+  }`
+  var FS_POINT = `#version 300 es
+  precision mediump float;
+  in vec3 vCol; in float vFade;
+  uniform float uAlpha;
+  uniform float uSoft;
+  out vec4 outColor;
+  void main(){
+    vec2 d = gl_PointCoord - vec2(0.5);
+    float r = length(d);
+    // 中心是亮核，外面是柔和光晕；uSoft 控制软硬（0=柔光）
+    float core = smoothstep(0.34, 0.06, r);
+    float halo = smoothstep(0.5, 0.10, r);
+    float a = mix(halo, core, uSoft);
+    outColor = vec4(vCol * (0.75 + 0.55 * vFade), a * uAlpha);
+  }`
+  var VS_LINE = `#version 300 es
+  layout(location=0) in vec3 aPos;
+  layout(location=1) in vec3 aCol;
+  uniform mat4 uVP;
+  out vec3 vCol;
+  void main(){ gl_Position = uVP * vec4(aPos,1.0); vCol = aCol; }`
+  var FS_LINE = `#version 300 es
+  precision mediump float;
+  in vec3 vCol; out vec4 outColor;
+  void main(){ outColor = vec4(vCol, 1.0); }`
+
+  function sh(type, src) {
+    var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s)
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s), src)
+    return s
+  }
+  function prog(vs, fs) {
+    var p = gl.createProgram()
+    gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p)
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p))
+    return p
+  }
+  var pPoint = prog(VS_POINT, FS_POINT), pLine = prog(VS_LINE, FS_LINE)
+  var uPoint = {
+    vp: gl.getUniformLocation(pPoint, 'uVP'),
+    scale: gl.getUniformLocation(pPoint, 'uScale'),
+    sizeMul: gl.getUniformLocation(pPoint, 'uSizeMul'),
+    alpha: gl.getUniformLocation(pPoint, 'uAlpha'),
+    soft: gl.getUniformLocation(pPoint, 'uSoft')
+  }
+  var uLine = { vp: gl.getUniformLocation(pLine, 'uVP') }
+
+  // ── 矩阵 ────────────────────────────────────────────────
+  function perspective(fovy, aspect, near, far) {
+    var f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far)
+    return new Float32Array([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0])
+  }
+  function mul(a, b) {
+    var o = new Float32Array(16)
+    for (var i = 0; i < 4; i++) for (var j = 0; j < 4; j++) {
+      var s = 0
+      for (var k = 0; k < 4; k++) s += a[k * 4 + j] * b[i * 4 + k]
+      o[i * 4 + j] = s
+    }
+    return o
+  }
+  // 视图 = 平移到轨道中心(target) → 旋转 → 后退 dist。
+  // 所以缩放永远围绕 target，而 target 可以双击任意节点换掉。
+  // 视图矩阵 = 平移(-target) → 绕 Y 转 yaw → 绕 X 转 pitch → 后退 dist。
+  // 关键：列主序，且 R = Rx(pitch)·Ry(yaw) 的符号不能错，否则"旋转"会变成斜切。
+  function view(yaw, pitch, dist, tx, ty, tz) {
+    var cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch)
+    // R 行主序
+    var r00 = cy,      r01 = 0,  r02 = sy
+    var r10 = sp * sy, r11 = cp, r12 = -sp * cy
+    var r20 = -cp * sy, r21 = sp, r22 = cp * cy
+    // t = -R·target + (0,0,-dist)
+    var tX = -(r00 * tx + r01 * ty + r02 * tz)
+    var tY = -(r10 * tx + r11 * ty + r12 * tz)
+    var tZ = -(r20 * tx + r21 * ty + r22 * tz) - dist
+    return new Float32Array([
+      r00, r10, r20, 0,
+      r01, r11, r21, 0,
+      r02, r12, r22, 0,
+      tX,  tY,  tZ,  1
+    ])
+  }
+
+  fetch('graph.json').then(function (r) { return r.json() }).then(init).catch(function (e) {
+    document.getElementById('stat').textContent = '读不到 graph.json：' + e.message
+  })
+
+  function init(d) {
+    if (!d || !d.nodes) { document.getElementById('stat').textContent = '图是空的'; return }
+    nodes = d.nodes.map(function (n) {
+      return { id: n.id, type: n.type, label: n.label, full: n.full || n.label, hue: n.hue || 205,
+        x: n.nx || 0, y: n.ny || 0, z: n.nz || 0, deg: 0 }
+    })
+    nodes.forEach(function (n) { byId.set(n.id, n) })
+    全部节点 = nodes
+    edges = d.edges.filter(function (e) { return byId.get(e.s) && byId.get(e.t) })
+    全部边 = edges
+    edges.forEach(function (e) { byId.get(e.s).deg++; byId.get(e.t).deg++ })
+
+    // 点数据
+    var pv = [], pc = [], ps = []
+    nodes.forEach(function (n) {
+      pv.push(n.x, n.y, n.z)
+      var c = hsl2rgb(n.type === 'cluster' ? n.hue : 196, 0.85, n.type === 'cluster' ? 0.72 : 0.66)
+      pc.push(c[0], c[1], c[2])
+      ps.push(n.type === 'cluster' ? 20 : n.type === 'entity' ? 6 + Math.min(6, n.deg * 0.4) : n.type === 'topic' ? 3.0 : 1.7)
+    })
+    var vbo = { p: gl.createBuffer(), c: gl.createBuffer(), s: gl.createBuffer() }
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.p); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pv), gl.STATIC_DRAW)
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.c); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pc), gl.STATIC_DRAW)
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.s); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ps), gl.STATIC_DRAW)
+
+    // 线数据
+    var lv = [], lc = []
+    edges.forEach(function (e) {
+      var a = byId.get(e.s), b = byId.get(e.t)
+      lv.push(a.x, a.y, a.z, b.x, b.y, b.z)
+      var cA = hsl2rgb(a.hue, 0.8, 0.6), cB = hsl2rgb(b.hue, 0.8, 0.6)
+      var k = e.rel ? 0.5 : 0.055
+      var col = e.rel ? [1.0, 0.62, 0.30] : [(cA[0] + cB[0]) / 2, (cA[1] + cB[1]) / 2, (cA[2] + cB[2]) / 2]
+      lc.push(col[0] * k, col[1] * k, col[2] * k, col[0] * k, col[1] * k, col[2] * k)
+    })
+    vbo.lp = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vbo.lp); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lv), gl.STATIC_DRAW)
+    vbo.lc = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vbo.lc); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lc), gl.STATIC_DRAW)
+    vbo.nLineVerts = lv.length / 3
+    VBO = vbo
+    function applyFilter() {
+      var cutoff = 显示.days > 0 ? Date.now() - 显示.days * 86400000 : 0
+      nodes = 全部节点.filter(function (n) {
+        if (!显示[n.type]) return false
+        if (n.type === 'fact' && cutoff && n.at && n.at < cutoff) return false
+        return true
+      })
+      var live = {}; nodes.forEach(function (n) { live[n.id] = 1 })
+      edges = 全部边.filter(function (e) { return live[e.s] && live[e.t] })
+      buildBuffers()
+      document.getElementById('stat').textContent = '显示 ' + nodes.length + ' / ' + 全部节点.length + ' 节点 · ' + edges.length + ' 边'
+    }
+    // 重要度：星群最重，其次实体/主题（按度数），事实最低
+    nodes.forEach(function (n) {
+      if (n.imp !== undefined) return
+      if (n.type === 'cluster') n.imp = 1.0
+      else if (n.type === 'entity') n.imp = Math.min(0.9, 0.5 + n.deg * 0.012)
+      else if (n.type === 'topic') n.imp = Math.min(0.5, 0.12 + n.deg * 0.01)
+      else n.imp = Math.min(0.14, 0.02 + n.deg * 0.004)
+    })
+
+    function buildBuffers() {
+      var pv2 = [], pc2 = [], ps2 = []
+      nodes.forEach(function (n) {
+        pv2.push(n.x * 形状.sx, n.y * 形状.sy, n.z * 形状.sz)
+        var c = hsl2rgb(n.hue, 0.82, n.type === 'cluster' ? 0.72 : 0.68)
+        pc2.push(c[0], c[1], c[2])
+        ps2.push(n.type === 'cluster' ? 26 : n.type === 'entity' ? 8 + Math.min(7, n.deg * 0.5) : n.type === 'topic' ? 4.0 : 2.3)
+      })
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo.p); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pv2), gl.STATIC_DRAW)
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo.c); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pc2), gl.STATIC_DRAW)
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo.s); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ps2), gl.STATIC_DRAW)
+      var lv2 = [], lc2 = []
+      edges.forEach(function (e) {
+        var a = byId.get(e.s), b = byId.get(e.t)
+        lv2.push(a.x*形状.sx, a.y*形状.sy, a.z*形状.sz, b.x*形状.sx, b.y*形状.sy, b.z*形状.sz)
+        var k = e.rel ? 0.5 : 0.055
+        var col = e.rel ? [1.0, 0.62, 0.30] : [0.42, 0.55, 0.78]
+        lc2.push(col[0]*k, col[1]*k, col[2]*k, col[0]*k, col[1]*k, col[2]*k)
+      })
+      // 空间近邻网格：只在距离阈值内的点之间连线，形成参考图那种神经网
+      var CELL = 120, grid = {}
+      nodes.forEach(function (n) {
+        if (n.type === 'cluster') return
+        var k = Math.floor(n.x / CELL) + ',' + Math.floor(n.y / CELL) + ',' + Math.floor(n.z / CELL)
+        ;(grid[k] || (grid[k] = [])).push(n)
+      })
+      var 已连 = {}
+      nodes.forEach(function (a) {
+        if (a.type === 'cluster') return
+        var cx = Math.floor(a.x / CELL), cy2 = Math.floor(a.y / CELL), cz = Math.floor(a.z / CELL)
+        var 邻居 = []
+        for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) for (var dz = -1; dz <= 1; dz++) {
+          var arr = grid[(cx + dx) + ',' + (cy2 + dy) + ',' + (cz + dz)]
+          if (arr) for (var i = 0; i < arr.length; i++) {
+            var b = arr[i]; if (b === a) continue
+            var d2 = (a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y) + (a.z-b.z)*(a.z-b.z)
+            if (d2 < 112 * 112) 邻居.push([d2, b])
+          }
+        }
+        邻居.sort(function (m, n) { return m[0] - n[0] })
+        for (var j = 0; j < Math.min(2, 邻居.length); j++) {
+          var b2 = 邻居[j][1]
+          var key = a.id < b2.id ? a.id + '|' + b2.id : b2.id + '|' + a.id
+          if (已连[key]) continue
+          已连[key] = 1
+          lv2.push(a.x*形状.sx, a.y*形状.sy, a.z*形状.sz, b2.x*形状.sx, b2.y*形状.sy, b2.z*形状.sz)
+          var g1 = 0.30, g2 = 0.62
+          lc2.push(0.05*g1, 0.32*g1, 0.46*g1, 0.05*g2, 0.42*g2, 0.60*g2)
+        }
+      })
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo.lp); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lv2), gl.STATIC_DRAW)
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo.lc); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lc2), gl.STATIC_DRAW)
+      vbo.nLineVerts = lv2.length / 3
+    }
+    重画 = buildBuffers
+
+    Array.prototype.forEach.call(document.querySelectorAll('#filters input[type=checkbox]'), function (cb) {
+      cb.onchange = function () { 显示[cb.getAttribute('data-t')] = cb.checked; applyFilter() }
+    })
+    document.getElementById('days').onchange = function (e) { 显示.days = Number(e.target.value) || 0; applyFilter() }
+
+
+    // 侧栏
+    var byKind = {}
+    nodes.forEach(function (n) { byKind[n.type] = (byKind[n.type] || 0) + 1 })
+    var kindName = { fact: '记忆事实', entity: '实体', topic: '主题词', cluster: '主题星群' }
+    var html = ''
+    Object.keys(kindName).forEach(function (k) {
+      var col = k === 'cluster' ? '#b58cff' : k === 'entity' ? '#ffcf7a' : k === 'topic' ? '#7fa6d8' : '#cfe0ff'
+      html += '<div class="row"><i style="background:' + col + '"></i><span>' + kindName[k] + '</span><em>' + (byKind[k] || 0) + '</em></div>'
+    })
+    document.getElementById('sources').innerHTML = html
+
+    var cl = nodes.filter(function (n) { return n.type === 'cluster' }).slice(0, 16)
+    document.getElementById('clusters').innerHTML = cl.map(function (c) {
+      return '<div class="row" data-cluster="' + c.id + '"><i style="background:hsl(' + c.hue + ',80%,68%)"></i><span>' +
+        c.label + '</span><em>' + c.deg + '</em></div>'
+    }).join('')
+    Array.prototype.forEach.call(document.querySelectorAll('#clusters .row'), function (r) {
+      r.onclick = function () {
+        highlightCluster = highlightCluster === r.getAttribute('data-cluster') ? null : r.getAttribute('data-cluster')
+        Array.prototype.forEach.call(document.querySelectorAll('#clusters .row'), function (x) { x.classList.toggle('on', x === r) })
+      }
+    })
+
+    // 自适应：把整团装进视野
+    var maxR = 1
+    nodes.forEach(function (n) { maxR = Math.max(maxR, Math.hypot(n.x, n.y, n.z)) })
+    fitDist = maxR * 1.42 / Math.tan(0.45)
+    cam.dist = fitDist
+    DEFAULT = { yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist, panX: 0, panY: 0 }
+
+    document.getElementById('stat').textContent =
+      '事实 ' + d.事实 + ' · 实体 ' + d.实体 + ' · 主题 ' + d.主题 + ' · 关系 ' + d.关系 +
+      ' · 星群 ' + d.簇 + ' · 节点 ' + d.节点 + ' · WebGL2'
+
+    frame(vbo)
+  }
+
+  function hsl2rgb(h, s, l) {
+    h = (h % 360) / 360
+    var a = s * Math.min(l, 1 - l)
+    function f(n) {
+      var k = (n + h * 12) % 12
+      return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+    }
+    return [f(0), f(8), f(4)]
+  }
+
+  ;['sx','sy','sz'].forEach(function (id) {
+    var el = document.getElementById(id)
+    if (!el) return
+    el.value = 形状[id]
+    el.oninput = function () {
+      形状[id] = Number(el.value)
+      localStorage.setItem('brainScale', JSON.stringify(形状))
+      if (重画) 重画()
+    }
+  })
+  var 复位 = document.getElementById('sreset')
+  if (复位) 复位.onclick = function () {
+    形状 = { sx: 1, sy: 1, sz: 1 }
+    ;['sx','sy','sz'].forEach(function (id) { var e = document.getElementById(id); if (e) e.value = 1 })
+    localStorage.setItem('brainScale', JSON.stringify(形状))
+    if (重画) 重画()
+  }
+
+  var VP = new Float32Array(16)
+  var VBO = null
+  var fitDist = 3000
+
+  function setCam(act) {
+    if (act === 'in') cam.dist = Math.max(400, cam.dist * 0.82)
+    else if (act === 'out') cam.dist = Math.min(12000, cam.dist * 1.22)
+    else if (act === 'fit') { cam.dist = fitDist; cam.tx = 0; cam.ty = 0; cam.tz = 0 }
+    else if (act === 'reset') { cam.yaw = DEFAULT ? DEFAULT.yaw : 0.6; cam.pitch = DEFAULT ? DEFAULT.pitch : 0.22; cam.dist = fitDist; cam.tx = 0; cam.ty = 0; cam.tz = 0 }
+    else if (act === 'bloom') { bloomOn = !bloomOn; var bb = document.querySelector('#bar [data-a="bloom"]'); if (bb) bb.textContent = bloomOn ? '柔光 开' : '柔光 关' }
+    else if (act === 'spin') { spin = !spin; var b = document.querySelector('#bar [data-a="spin"]'); if (b) b.textContent = spin ? '暂停旋转' : '继续旋转' }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#bar button'), function (b) {
+    b.onclick = function () { setCam(b.getAttribute('data-a')) }
+  })
+  addEventListener('keydown', function (e) {
+    if (e.key === 's' || e.key === 'S') {
+      var sh = document.getElementById('shape')
+      if (sh) sh.classList.toggle('on')
+      return
+    }
+    if (e.key === '+' || e.key === '=') setCam('in')
+    else if (e.key === '-') setCam('out')
+    else if (e.key === '0') setCam('reset')
+    else if (e.key === ' ') { e.preventDefault(); setCam('spin') }
+    else if (e.key === 'Escape') document.getElementById('panel').style.display = 'none'
+  })
+  function frame(vbo) {
+    if (spin) cam.yaw += 0.0016
+    var aspect = (W - LEFT) / H
+    var P = perspective(0.9, aspect, 1, 20000)
+    var V = view(cam.yaw, cam.pitch, cam.dist, cam.tx, cam.ty, cam.tz)
+    VP = mul(P, V)
+
+    画星空()
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE)   // 加法混合 → 发光
+
+    // 线
+    gl.useProgram(pLine)
+    gl.uniformMatrix4fv(uLine.vp, false, VP)
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.lp)
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0)
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.lc)
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0)
+    gl.drawArrays(gl.LINES, 0, vbo.nLineVerts)
+
+    // 点
+    gl.useProgram(pPoint)
+    gl.uniformMatrix4fv(uPoint.vp, false, VP)
+    gl.uniform1f(uPoint.scale, 980.0 * Math.min(2, (W - LEFT) / 900))
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.p)
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0)
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.c)
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0)
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo.s)
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0)
+    // ① 柔光：大而淡，负责"发光"
+    gl.uniform1f(uPoint.sizeMul, 2.6); gl.uniform1f(uPoint.alpha, 0.10); gl.uniform1f(uPoint.soft, 0.0)
+    gl.drawArrays(gl.POINTS, 0, nodes.length)
+    // ② 亮核：小而锐，负责"清楚"
+    gl.uniform1f(uPoint.sizeMul, 1.0); gl.uniform1f(uPoint.alpha, 0.82); gl.uniform1f(uPoint.soft, 1.0)
+    gl.drawArrays(gl.POINTS, 0, nodes.length)
+
+    // 真·后处理泛光：先降采样，再模糊，最后加法叠回画面
+    if (bloomOn) {
+      s2.clearRect(0, 0, small.width, small.height)
+      s2.drawImage(glc, 0, 0, glc.width, glc.height, 0, 0, small.width, small.height)
+      g2.clearRect(0, 0, W, H)
+      g2.filter = 'blur(5px)'
+      g2.globalCompositeOperation = 'lighter'
+      g2.drawImage(small, 0, 0, small.width, small.height, 0, 0, W, H)
+      g2.filter = 'none'
+    } else {
+      g2.clearRect(0, 0, W, H)
+    }
+
+    drawLabels()
+    requestAnimationFrame(function () { frame(vbo) })
+  }
+
+  function project(n) {
+    var m = VP
+    var x = n.x, y = n.y, z = n.z
+    var cw = m[3] * x + m[7] * y + m[11] * z + m[15]
+    if (cw <= 0.01) return null
+    var cx = m[0] * x + m[4] * y + m[8] * z + m[12]
+    var cy = m[1] * x + m[5] * y + m[9] * z + m[13]
+    return { x: LEFT + (cx / cw * 0.5 + 0.5) * (W - LEFT), y: (0.5 - cy / cw * 0.5) * H, w: cw }
+  }
+
+  function drawLabels() {
+    lg.clearRect(0, 0, W, H)
+    lg.textAlign = 'center'
+    var used = {}, drawn = 0
+    // 缩放越大（dist 越小）→ 重要度门槛越低 → 逐渐露出不重要的记忆
+    // dist 越大视角越远；t=0 最远（只露星群），t→1 贴近（全部可露）
+    var tz = Math.max(0, Math.min(1, (fitDist / Math.max(1, cam.dist) - 0.75) / 2.2))
+    var 门槛 = 1.02 - tz * 1.02      // 最远时只有 imp=1.0 的星群能过
+    var 上限 = Math.round(4 + tz * 170)
+    var order = nodes.slice().sort(function (a, b) { return (b.imp || 0) - (a.imp || 0) })
+    for (var i = 0; i < order.length; i++) {
+      var n = order[i]
+      var n = nodes[i]
+      if (n.type === 'fact') continue
+      if (highlightCluster && n.hue !== (byId.get(highlightCluster) || {}).hue && n.type !== 'cluster') continue
+      var p = project(n); if (!p) continue
+      var isC = n.type === 'cluster'
+      var isQ = query && n.label.toLowerCase().indexOf(query) >= 0
+      if (!isC && !isQ && (n.imp || 0) < 门槛) continue
+      if (isC && tz < 0.25 && drawn >= 12) continue
+      if (p.x < LEFT + 6 || p.x > W - 6) continue
+      if (!isC && drawn > 上限) continue
+      var gx = Math.round(p.x / 70), gy = Math.round(p.y / 26), gk = gx + ',' + gy
+      if (!isC && used[gk]) continue
+      used[gk] = 1
+      drawn++
+      lg.font = (isC ? '600 13.5px' : '11.5px') + ' "Microsoft YaHei",sans-serif'
+      lg.shadowColor = 'rgba(0,0,0,.92)'; lg.shadowBlur = isC ? 6 : 4
+      var fade = Math.max(0.25, Math.min(1, 2600 / p.w))
+      lg.fillStyle = isC ? 'hsla(' + n.hue + ',85%,78%,' + fade + ')'
+                     : 'rgba(196,214,240,' + (isQ ? 1 : 0.62 * fade) + ')'
+      lg.fillText(n.label.slice(0, 12), p.x, p.y - (isC ? 13 : 8))
+    }
+  }
+
+  // ── 交互 ────────────────────────────────────────────────
+  var drag = null
+  glc.addEventListener('pointerdown', function (e) {
+    // SolidWorks 手感：中键旋转；Ctrl+中键 或 右键 平移；左键只做点选
+    drag = { x: e.clientX, y: e.clientY, yaw: cam.yaw, pitch: cam.pitch, pan: (e.button === 2) || (e.button === 1 && e.ctrlKey), orbit: e.button === 1 && !e.ctrlKey || e.button === 0 && e.shiftKey }
+    glc.classList.add('drag'); spin = false
+  })
+  glc.addEventListener('pointermove', function (e) {
+    if (drag) {
+      if (drag.pan) {
+        var k = cam.dist / 900
+        var dx = (e.clientX - drag.x) * k, dy = (e.clientY - drag.y) * k
+        var cyw = Math.cos(cam.yaw), syw = Math.sin(cam.yaw)
+        cam.tx -= dx * cyw; cam.tz += dx * syw
+        cam.ty += dy
+      }
+      else {
+        cam.yaw = drag.yaw + (e.clientX - drag.x) * 0.005
+        cam.pitch = Math.max(-1.55, Math.min(1.55, drag.pitch + (e.clientY - drag.y) * 0.004))
+      }
+      return
+    }
+    var hit = pick(e.clientX, e.clientY)
+    hover = hit
+    var tip = document.getElementById('tip')
+    if (hit) {
+      tip.style.display = 'block'
+      tip.style.left = Math.min(W - 340, e.clientX + 14) + 'px'
+      tip.style.top = (e.clientY + 14) + 'px'
+      tip.textContent = hit.full.slice(0, 90)
+    } else tip.style.display = 'none'
+  })
+  glc.addEventListener('pointerup', function (e) {
+    glc.classList.remove('drag')
+    if (drag && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5 && e.button === 0) {
+      var hit = pick(e.clientX, e.clientY); if (hit) show(hit)
+    }
+    drag = null
+  })
+  glc.addEventListener('dblclick', function (e) {
+    var hit = pick(e.clientX, e.clientY)
+    if (!hit) { setCam('reset'); return }
+    cam.tx = hit.x; cam.ty = hit.y; cam.tz = hit.z; cam.dist = Math.max(420, cam.dist * 0.42)
+    show(hit)
+  })
+  glc.addEventListener('contextmenu', function (e) { e.preventDefault() })
+  glc.addEventListener('wheel', function (e) {
+    e.preventDefault()
+    // 朝光标方向缩放：先把光标处的屏幕点投到 target 平面上，再把 target 往那挪 25%
+    var cx = LEFT + (W - LEFT) / 2, cy = H / 2
+    var dx = (e.clientX - cx) / Math.max(1, (W - LEFT) / 2)
+    var dy = (cy - e.clientY) / Math.max(1, H / 2)
+    var k = Math.tan(0.45) * cam.dist
+    var cyw = Math.cos(cam.yaw), syw = Math.sin(cam.yaw)
+    var wx = dx * k * (W - LEFT) / Math.max(1, H), wy = dy * k
+    cam.tx += ( wx * cyw) * 0.25
+    cam.tz += (-wx * syw) * 0.25
+    cam.ty += wy * 0.25
+    cam.dist = Math.max(380, Math.min(9000, cam.dist * (e.deltaY > 0 ? 1.12 : 0.9)))
+  }, { passive: false })
+
+  function pick(px, py) {
+    var best = null, bd = 18
+    for (var i = 0; i < nodes.length; i++) {
+      var p = project(nodes[i]); if (!p) continue
+      var d = Math.hypot(p.x - px, p.y - py)
+      if (d < bd) { bd = d; best = nodes[i] }
+    }
+    return best
+  }
+
+  function show(n) {
+    selected = n
+    var panel = document.getElementById('panel')
+    var rel = edges.filter(function (e) { return e.s === n.id || e.t === n.id })
+    var facts = rel.filter(function (e) { var o = byId.get(e.s === n.id ? e.t : e.s); return o && o.type === 'fact' }).slice(0, 6)
+    var others = rel.filter(function (e) { var o = byId.get(e.s === n.id ? e.t : e.s); return o && o.type !== 'fact' }).slice(0, 18)
+    var col = 'hsl(' + n.hue + ',80%,70%)'
+    var kind = n.type === 'entity' ? '实体' : n.type === 'topic' ? '主题' : n.type === 'cluster' ? '星群' : '记忆'
+    var html = '<span class="tag" style="background:' + col + '22;color:' + col + '">' + kind + '</span>'
+    html += '<div class="t">' + esc(n.full) + '</div>'
+    if (facts.length) html += '<h3>它记得的</h3><ul>' + facts.map(function (e) {
+      var o = byId.get(e.s === n.id ? e.t : e.s); return '<li>' + esc((o.full || o.label).slice(0, 70)) + '</li>'
+    }).join('') + '</ul>'
+    if (others.length) html += '<h3>连着的</h3><ul>' + others.map(function (e) {
+      var o = byId.get(e.s === n.id ? e.t : e.s)
+      var arrow = e.s === n.id ? '→' : '←'
+      return '<li>' + (e.rel ? '<b style="color:#ffb06e">' + esc(e.rel) + '</b> ' + arrow + ' ' : arrow + ' ') +
+        '<span style="color:hsl(' + o.hue + ',78%,72%)">' + esc(o.label) + '</span></li>'
+    }).join('') + '</ul>'
+    panel.innerHTML = html
+    panel.style.display = 'block'
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] }) }
+
+  document.getElementById('q').addEventListener('input', function (e) { query = (e.target.value || '').trim().toLowerCase() })
+})()
+</script>
+</body>
+</html>
